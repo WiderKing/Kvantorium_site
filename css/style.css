@@ -323,3 +323,19 @@ table.vedomost tr.sec td{background:rgba(43,255,139,.07);color:var(--neon);text-
   .vedomost-print tr{page-break-inside:avoid}
   @page{size:A4 portrait;margin:12mm}
 }
+
+/* ===== выбор групп / удаляемые элементы ===== */
+.check-pill{
+  display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:99px;cursor:pointer;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);font-size:12.5px;font-weight:600;
+  color:var(--muted);transition:all .2s;user-select:none;
+}
+.check-pill:hover{color:var(--neon);border-color:rgba(43,255,139,.5);box-shadow:0 0 14px rgba(43,255,139,.2)}
+.check-pill:has(input:checked){color:var(--neon);border-color:rgba(43,255,139,.45);background:rgba(43,255,139,.08)}
+.check-pill input{accent-color:var(--neon);cursor:pointer}
+.pill.removable{padding-right:4px;gap:4px}
+.pill-x{
+  border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;
+  padding:2px 6px;border-radius:99px;transition:all .18s;
+}
+.pill-x:hover{color:var(--red);background:rgba(255,79,94,.15);text-shadow:0 0 8px rgba(255,79,94,.6)}

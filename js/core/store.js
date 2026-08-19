@@ -115,3 +115,66 @@ export function lessonsForGroup(shift, groupId, st = state) {
 }
 
 export const lessonKey = (l) => `${l.date}#${l.no}`;
+
+/* ---------- удаление лишних групп и занятий ---------- */
+
+/** Пересчитывает сводку по спискам обучающихся. */
+export function recalcStudentStats(st = state) {
+  const subs = st.students?.subjects || [];
+  if (!st.students) return;
+  st.students.stats = {
+    subjects: subs.length,
+    groups: subs.reduce((a, s) => a + s.groups.length, 0),
+    students: subs.reduce((a, s) => a + s.groups.reduce((b, g) => b + g.students.length, 0), 0),
+  };
+}
+
+/** Убирает следы группы из журнала, сопоставления и ведомости. */
+function purgeGroup(st, groupId) {
+  for (const sh of Object.keys(st.journal || {})) delete st.journal[sh]?.[groupId];
+  for (const [code, m] of Object.entries(st.mapping || {})) if (m?.groupId === groupId) delete st.mapping[code];
+  st.vedomostGroups = (st.vedomostGroups || []).filter(id => id !== groupId);
+}
+
+/** Оставляет только перечисленные группы (по id); предметы без групп удаляются. */
+export function keepGroups(keepIds) {
+  const keep = new Set(keepIds);
+  update(st => {
+    for (const sub of st.students?.subjects || []) {
+      for (const g of sub.groups) if (!keep.has(g.id)) purgeGroup(st, g.id);
+      sub.groups = sub.groups.filter(g => keep.has(g.id));
+    }
+    if (st.students) st.students.subjects = st.students.subjects.filter(s => s.groups.length);
+    recalcStudentStats(st);
+    if (!allGroups(st).some(x => x.group.id === st.ui.journalGroup)) {
+      const first = allGroups(st)[0];
+      st.ui.journalSubject = first?.subject.id || null;
+      st.ui.journalGroup = first?.group.id || null;
+    }
+  });
+}
+
+export function removeGroup(groupId) {
+  const keep = allGroups().filter(x => x.group.id !== groupId).map(x => x.group.id);
+  keepGroups(keep);
+}
+
+export function removeSubject(subjectId) {
+  const keep = allGroups().filter(x => x.subject.id !== subjectId).map(x => x.group.id);
+  keepGroups(keep);
+}
+
+/** Оставляет в расписании заезда только занятия выбранных педагогов и кодов. */
+export function filterSchedule(shift, { teachers, codes } = {}) {
+  update(st => {
+    const sc = st.schedules[String(shift)];
+    if (!sc) return;
+    const tSet = teachers ? new Set(teachers) : null;
+    const cSet = codes ? new Set(codes) : null;
+    sc.lessons = sc.lessons.filter(l =>
+      (!tSet || tSet.has(l.teacher)) && (!cSet || cSet.has(l.code) || l.kind === 'event'));
+    sc.teachers = [...new Set(sc.lessons.map(l => l.teacher).filter(Boolean))];
+    sc.codes = [...new Set(sc.lessons.filter(l => l.kind !== 'event').map(l => l.code))].sort();
+    sc.dates = [...new Set(sc.lessons.map(l => l.date))].sort();
+  });
+}
