@@ -135,7 +135,7 @@ js/
   pages/      dashboard.js · journal.js · vedomost.js · hours.js · salary.js · data.js
 ```
 
-Логотип в `assets/logo.svg` — векторная реплика эмблемы «Кванториум-28»; из неё собраны
-favicon и иконка для мобильного экрана.
+Логотип в `assets/logo.svg` — официальная векторная эмблема «Кванториум-28»; из неё собраны
+favicon, иконка 32×32 и иконка для мобильного экрана.
 
 Требуется браузер с поддержкой `DecompressionStream` (Chrome/Edge 80+, Firefox 113+, Safari 16.4+).
