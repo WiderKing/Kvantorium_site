@@ -50,6 +50,13 @@ body{
   border-bottom:1px solid var(--line-soft);
 }
 .brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-logo{
+  width:44px;height:44px;flex:none;border-radius:12px;padding:3px;
+  background:radial-gradient(circle at 50% 45%,rgba(43,255,139,.16),rgba(43,255,139,.03) 65%,transparent);
+  filter:drop-shadow(0 0 10px rgba(43,255,139,.35));
+  transition:filter .3s,transform .3s;
+}
+.brand:hover .brand-logo{filter:drop-shadow(0 0 16px rgba(43,255,139,.7));transform:rotate(-8deg) scale(1.05)}
 .brand-mark{
   display:grid;place-items:center;width:42px;height:42px;border-radius:12px;flex:none;
   font-family:var(--mono);font-weight:600;font-size:14px;color:var(--neon);
@@ -279,4 +286,39 @@ details.acc .acc-body{padding:0 16px 16px}
   .topbar{flex-direction:column;align-items:stretch;gap:10px}
   .nav{margin-left:0;justify-content:center}
   .view{padding:18px 12px 80px}
+}
+
+/* ================= ВЕДОМОСТЬ ================= */
+table.vedomost td, table.vedomost th{white-space:nowrap}
+table.vedomost tr.sec td{background:rgba(43,255,139,.07);color:var(--neon);text-align:center;letter-spacing:.5px}
+.mark-sel{
+  width:auto;min-width:96px;padding:4px 8px;font-family:var(--mono);font-size:12.5px;
+  background:#070c11;border:1px solid var(--line-soft);border-radius:7px;color:var(--muted);
+}
+.mark-sel:hover{border-color:rgba(43,255,139,.5);box-shadow:0 0 12px rgba(43,255,139,.22)}
+.mark-sel.edited{color:var(--neon);border-color:rgba(43,255,139,.5);background:rgba(43,255,139,.07)}
+.mark-sel.final{font-weight:700}
+.mark-sel.final.edited{color:var(--amber);border-color:rgba(255,200,87,.5);background:rgba(255,200,87,.08)}
+
+/* ================= ПЕЧАТЬ ================= */
+.print-only{display:none}
+@media print{
+  .topbar,.no-print,.toasts,.bg-grid,.bg-glow,.head-actions{display:none !important}
+  body{background:#fff;color:#000}
+  .view{padding:0;max-width:none}
+  .card{background:none;border:none;padding:0;box-shadow:none}
+  .print-only{display:block}
+  .vedomost-print{font-family:'Times New Roman',serif;color:#000}
+  .vedomost-print .v-org{font-size:10pt;font-weight:700;text-align:center;margin:0 0 2pt}
+  .vedomost-print .v-tech{font-size:11pt;font-weight:700;text-align:center;margin:0 0 10pt}
+  .vedomost-print h2{font-size:14pt;text-align:center;margin:0 0 8pt}
+  .vedomost-print .v-prog{font-size:11pt;text-align:center;margin:0 0 8pt}
+  .vedomost-print .v-place{font-size:11pt;text-align:center;margin:0 0 12pt}
+  .vedomost-print .v-sign{font-size:11pt;margin-top:14pt}
+  .vedomost-print table.v-table{width:100%;border-collapse:collapse;margin-bottom:10pt;page-break-inside:auto}
+  .vedomost-print table.v-table th,.vedomost-print table.v-table td{
+    border:1px solid #000;padding:2pt 4pt;font-size:11pt;color:#000;background:none;white-space:normal}
+  .vedomost-print table.v-table th{font-weight:700;text-align:center;text-transform:none;letter-spacing:0}
+  .vedomost-print tr{page-break-inside:avoid}
+  @page{size:A4 portrait;margin:12mm}
 }

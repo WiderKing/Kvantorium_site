@@ -26,6 +26,9 @@ export const DEFAULTS = {
     calendarOverrides: {},      // "2026-1": 15
     history: [],                // сохранённые расчёты
   },
+  vedomostHeader: {},           // шапка итоговой ведомости
+  vedomostGroups: [],           // группы, попадающие в ведомость
+  vedomostMarks: {},            // ручные правки оценок: studentId -> {1,2,3,final}
   ui: { journalShift: 1, journalSubject: null, journalGroup: null },
 };
 

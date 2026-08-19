@@ -3,6 +3,7 @@ import { h, toast, statCard, progressBar, hoursFmt, dateRu, download, modal, con
 import { getState, update, lessonsForGroup, allGroups } from '../core/store.js';
 import { importPlanFile } from '../parsers/plan.js';
 import { BASE_WORKS, QUICK_ACTIONS } from '../data/works.js';
+import { buildPlanReport } from '../exporters/plan-export.js';
 
 const KIND_LABEL = { teaching: 'Учебные', method: 'Методические' };
 
@@ -54,6 +55,7 @@ export function render(root) {
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn primary', onClick: () => addEntryDialog(redraw) }, '+ Списать часы'),
         h('button', { class: 'btn', onClick: () => importDialog(redraw) }, '⤒ Импорт плана (.xlsx)'),
+        h('button', { class: 'btn', onClick: exportXlsx }, '⤓ Excel по форме плана'),
         st.hoursLog.length ? h('button', { class: 'btn', onClick: exportLog }, '⤓ CSV') : null,
       )));
 
@@ -114,10 +116,19 @@ export function render(root) {
     wrap.append(logTable(st, redraw));
   }
 
+  async function exportXlsx() {
+    try {
+      const blob = await buildPlanReport(getState());
+      const y = (getState().plan?.year || '').replace(/\//g, '-');
+      download(`Индивидуальный_план_факт${y ? '_' + y : ''}.xlsx`, blob);
+      toast('Выгружено в Excel по форме индивидуального плана');
+    } catch (e) { console.error(e); toast('Ошибка выгрузки: ' + e.message, 'err'); }
+  }
+
   function exportLog() {
     const st = getState();
-    const rows = [['Дата', 'Тип', 'Вид работы', 'Часы', 'Комментарий']];
-    for (const e of st.hoursLog) rows.push([dateRu(e.date), KIND_LABEL[e.kind], e.title, String(e.hours).replace('.', ','), e.note || '']);
+    const rows = [['Дата', 'Тип', 'Наименование', 'Сроки', 'Вид работы', 'Часы', 'Комментарий']];
+    for (const e of st.hoursLog) rows.push([dateRu(e.date), KIND_LABEL[e.kind], e.subject || '', e.period || '', e.title, String(e.hours).replace('.', ','), e.note || '']);
     download('Списанные_часы.csv', '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   }
 
@@ -202,12 +213,13 @@ function logTable(st, redraw) {
     h('div', { class: 'table-wrap', style: { maxHeight: '460px' } },
       h('table', { class: 'compact' },
         h('thead', {}, h('tr', {},
-          h('th', {}, 'Дата'), h('th', {}, 'Тип'), h('th', {}, 'Вид работы'),
+          h('th', {}, 'Дата'), h('th', {}, 'Тип'), h('th', {}, 'Наименование'), h('th', {}, 'Вид работы'),
           h('th', { class: 'num' }, 'Часы'), h('th', {}, 'Комментарий'), h('th', {}, ''))),
         h('tbody', {}, ...sorted.map(e => h('tr', {},
           h('td', { class: 'mono' }, dateRu(e.date)),
           h('td', {}, h('span', { class: `pill ${e.kind === 'teaching' ? 'cyan' : 'ok'}` }, KIND_LABEL[e.kind])),
-          h('td', { style: { whiteSpace: 'normal', maxWidth: '460px' } }, e.title),
+          h('td', { class: e.subject ? '' : 'muted', style: { whiteSpace: 'normal', maxWidth: '220px' } }, e.subject || '—'),
+          h('td', { style: { whiteSpace: 'normal', maxWidth: '420px' } }, e.title),
           h('td', { class: 'num mono' }, hoursFmt(e.hours)),
           h('td', { class: 'muted', style: { whiteSpace: 'normal', maxWidth: '320px' } }, e.note || ''),
           h('td', {}, h('button', {
@@ -219,14 +231,26 @@ function logTable(st, redraw) {
 
 /* ================= действия ================= */
 
-function addEntry({ workId, kind, title, hours, note, date }) {
+function addEntry({ workId, kind, title, hours, note, date, subject, period }) {
   update(x => {
     x.hoursLog.push({
       id: Date.now() + Math.floor(Math.random() * 1000),
       date: date || new Date().toISOString().slice(0, 10),
       kind, workId, title, hours: Number(hours) || 0, note: note || '',
+      subject: subject || '', period: period || '',
     });
   });
+}
+
+/** Подсказки для поля «Наименование»: строки плана + группы из журнала. */
+function subjectSuggestions(st) {
+  const out = new Set();
+  for (const sh of (st.plan?.sheets || [])) for (const e of sh.entries) if (e.name) out.add(e.name);
+  const groups = allGroups(st);
+  for (const [code, m] of Object.entries(st.mapping || {})) {
+    if (groups.some(g => g.group.id === m?.groupId)) out.add(`Группа ${code}`);
+  }
+  return [...out];
 }
 
 function addEntryDialog(redraw, preset = {}) {
@@ -237,7 +261,11 @@ function addEntryDialog(redraw, preset = {}) {
   }, `${w.kind === 'teaching' ? '📘' : '🧩'} ${w.category ? w.category + ' · ' : ''}${w.title}${w.planned ? ` (план ${w.planned} ч)` : ''}`)));
   const hoursInput = h('input', { type: 'number', step: '0.5', min: '0', value: preset.hours ?? 1 });
   const dateInput = h('input', { type: 'date', value: new Date().toISOString().slice(0, 10) });
-  const noteInput = h('input', { type: 'text', placeholder: 'например: группа Д1 РШ, 3 заезд' });
+  const noteInput = h('input', { type: 'text', placeholder: 'комментарий (необязательно)' });
+  const listId = 'subj-' + Math.random().toString(36).slice(2, 8);
+  const subjectInput = h('input', { type: 'text', list: listId, placeholder: 'например: Группа Т1 РШ7', value: preset.subject || '' });
+  const dataList = h('datalist', { id: listId }, ...subjectSuggestions(st).map(v => h('option', { value: v })));
+  const periodInput = h('input', { type: 'text', placeholder: 'например: 26.12.2025 - 07.02.2026', value: preset.period || '' });
   const presetRow = h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' } });
 
   const refreshPresets = () => {
@@ -255,17 +283,22 @@ function addEntryDialog(redraw, preset = {}) {
     body: h('div', {},
       h('label', { class: 'field', style: { marginBottom: '10px' } }, h('span', {}, 'Вид работы'), sel),
       h('div', { class: 'row' },
+        h('label', { class: 'field' }, h('span', {}, 'Наименование группы / мероприятия'), subjectInput, dataList),
+        h('label', { class: 'field' }, h('span', {}, 'Сроки проведения'), periodInput)),
+      h('div', { class: 'row', style: { marginTop: '10px' } },
         h('label', { class: 'field' }, h('span', {}, 'Дата'), dateInput),
         h('label', { class: 'field' }, h('span', {}, 'Часы'), hoursInput)),
       presetRow,
       h('label', { class: 'field', style: { marginTop: '10px' } }, h('span', {}, 'Комментарий'), noteInput),
+      h('p', { class: 'muted', style: { fontSize: '12px', marginBottom: 0 } },
+        'Наименование попадает в строку выгрузки по форме индивидуального плана — выбирайте его из подсказок, чтобы строки совпали с планом.'),
     ),
     okText: 'Списать',
     onOk: () => {
       const w = works.find(x => x.id === sel.value);
       const hrs = parseFloat(hoursInput.value);
       if (!w || !isFinite(hrs) || hrs <= 0) { toast('Укажите вид работы и положительное число часов', 'err'); return false; }
-      addEntry({ workId: w.id, kind: w.kind, title: w.title, hours: hrs, note: noteInput.value, date: dateInput.value });
+      addEntry({ workId: w.id, kind: w.kind, title: w.title, hours: hrs, note: noteInput.value, date: dateInput.value, subject: subjectInput.value, period: periodInput.value });
       toast(`Списано ${hrs} ч`); redraw();
     },
   });

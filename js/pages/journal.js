@@ -72,6 +72,7 @@ export function render(root) {
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', onClick: () => markAllPresent(shift, group, lessons) }, '✓ Все присутствуют'),
         h('button', { class: 'btn', onClick: () => exportJournal(st, subject, group, shift, lessons) }, '⤓ Экспорт CSV'),
+        h('button', { class: 'btn primary', onClick: () => openVedomost(subject) }, '📄 Создание ведомости'),
         h('button', { class: 'btn', onClick: () => go('data') }, '⚙ Данные'),
       )));
 
@@ -138,6 +139,17 @@ export function render(root) {
     }
 
     wrap.append(journalTable(st, subject, group, shift, lessons, setMark, redraw, () => brush));
+  }
+
+  /** Открывает ведомость, предварительно выбрав группы текущего предмета. */
+  function openVedomost(subject) {
+    update(x => {
+      if (!x.vedomostGroups?.length) x.vedomostGroups = subject.groups.map(g => g.id);
+      if (!x.vedomostHeader?.teacher && x.plan?.teacher) {
+        x.vedomostHeader = { ...(x.vedomostHeader || {}), teacher: x.plan.teacher };
+      }
+    });
+    go('vedomost');
   }
 
   function markAllPresent(shift, group, lessons) {
