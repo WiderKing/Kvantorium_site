@@ -54,6 +54,9 @@ export function calcAll(p) {
   return { half, one, oneHalf, gphNet, withGph, benefit: withGph - oneHalf.net };
 }
 
+/** Значения ещё из исходного файла-примера (до сверки с реальным расчётным листком). */
+const isStaleConstants = (s) => s.intensive === 10650 && s.quality === 115;
+
 const ROWS = [
   ['Оклад', 'oklad'],
   ['Стоимость дня', 'dayCost'],
@@ -209,6 +212,16 @@ function renderCalcTab(root) {
       ),
       h('div', { class: 'card' },
         h('h3', {}, 'Постоянные величины ', h('span', { class: 'hint' }, '(меняются раз в полгода)')),
+        isStaleConstants(s) ? h('div', { class: 'card', style: { background: 'rgba(255,200,87,.06)', borderColor: 'rgba(255,200,87,.35)', marginBottom: '12px', padding: '12px 14px' } },
+          h('p', { style: { margin: '0 0 8px', fontSize: '13px' } },
+            '⚠ Похоже, у вас старые значения доплаты за интенсив/надбавки за качество (со снимка исходной таблицы). ',
+            'По расчётному листку за июль 2026 актуальные — 17 811,97 ₽ и 2 467,98 ₽.'),
+          h('button', {
+            class: 'btn sm', onClick: () => {
+              update(x => { x.salary.intensive = 17811.97; x.salary.quality = 2467.98; });
+              toast('Значения обновлены'); redraw();
+            }
+          }, '↺ Обновить на актуальные')) : null,
         h('div', { class: 'row' }, field('Оклад 1 ставки, ₽', 'base'), field('Доплата за интенсив, ₽', 'intensive')),
         h('div', { class: 'row', style: { marginTop: '10px' } }, field('Надбавка за качество, ₽', 'quality'), field('Сумма ГПХ (начислено), ₽', 'gph')),
         h('div', { class: 'row', style: { marginTop: '10px' } },
