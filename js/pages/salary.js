@@ -2,6 +2,7 @@
 import { h, money, money0, toast, statCard, download, MONTHS } from '../core/ui.js';
 import { getState, update } from '../core/store.js';
 import { WORK_DAYS, YEARS, workDays, yearTotal, isPreliminary } from '../data/calendar.js';
+import * as vacation from './vacation.js';
 
 /**
  * Расчёт одной ставки по модели из рабочей таблицы.
@@ -65,6 +66,32 @@ const ROWS = [
 ];
 
 export function render(root) {
+  const tabsBar = h('div', { class: 'tabs', style: { marginBottom: '18px' } });
+  const body = h('div', {});
+  root.append(tabsBar, body);
+
+  function mount() {
+    const tab = getState().ui.salaryTab === 'vacation' ? 'vacation' : 'calc';
+    tabsBar.innerHTML = '';
+    tabsBar.append(
+      h('button', {
+        class: 'tab' + (tab === 'calc' ? ' active' : ''),
+        onClick: () => { update(x => { x.ui.salaryTab = 'calc'; }); mount(); },
+      }, 'Расчёт по месяцам'),
+      h('button', {
+        class: 'tab' + (tab === 'vacation' ? ' active' : ''),
+        onClick: () => { update(x => { x.ui.salaryTab = 'vacation'; }); mount(); },
+      }, '🏖 Отпускные'),
+    );
+    body.innerHTML = '';
+    if (tab === 'vacation') vacation.render(body);
+    else renderCalcTab(body);
+  }
+
+  mount();
+}
+
+function renderCalcTab(root) {
   const st = getState();
   const s = st.salary;
 

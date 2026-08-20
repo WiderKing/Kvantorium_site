@@ -33,10 +33,17 @@ export const DEFAULTS = {
     calendarOverrides: {},      // "2026-1": 15
     history: [],                // сохранённые расчёты
   },
+  vacation: {
+    startYear: 2026,
+    startMonth: new Date().getMonth() + 1,
+    months: {},                  // "2026-1": {net, excludedDays}
+    vacationDays: 14,
+    history: [],                 // сохранённые расчёты отпускных
+  },
   vedomostHeader: {},           // шапка итоговой ведомости
   vedomostGroups: [],           // группы, попадающие в ведомость
   vedomostMarks: {},            // ручные правки оценок: studentId -> {1,2,3,final}
-  ui: { journalShift: 1, journalSubject: null, journalGroup: null },
+  ui: { journalShift: 1, journalSubject: null, journalGroup: null, salaryTab: 'calc' },
 };
 
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
