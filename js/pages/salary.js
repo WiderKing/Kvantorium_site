@@ -3,19 +3,45 @@ import { h, money, money0, toast, statCard, download, MONTHS } from '../core/ui.
 import { getState, update } from '../core/store.js';
 import { WORK_DAYS, YEARS, workDays, yearTotal, isPreliminary } from '../data/calendar.js';
 
-/** Расчёт одной ставки по модели из рабочей таблицы. */
+/**
+ * Расчёт одной ставки по модели из рабочей таблицы.
+ * Если p.factDays меньше нормы (p.workDays) — оклад, доплата за интенсив и
+ * надбавка за качество пропорционально урезаются (неполный месяц: отпуск,
+ * больничный и т.п.). Формула проверена по реальному расчётному листку:
+ * «Оплата по окладу» = оклад × факт.дни / норма.дней, остальные надбавки —
+ * так же, районный коэффициент и северная надбавка — 30% от их суммы.
+ * Цена дня для РВ всегда считается от полной месячной суммы и полной нормы —
+ * работа в выходной оплачивается по цене обычного полного дня.
+ */
 export function calcRate(p, rate) {
   const oklad = p.base * rate;
+  const norm = p.workDays > 0 ? p.workDays : 0;
   const fixed = oklad + p.intensive + p.quality;
-  const dayCost = p.workDays > 0 ? fixed / p.workDays : 0;
+  const dayCost = norm > 0 ? fixed / norm : 0;
   const rvPrice = dayCost * 2;
   const rvSum = p.rv * rvPrice;
-  const baseForCoef = oklad + p.quality + p.intensive + rvSum;
+
+  const hasFact = p.factDays !== null && p.factDays !== undefined && p.factDays !== '';
+  const fact = hasFact ? Math.max(0, Math.min(Number(p.factDays), norm)) : norm;
+  const partial = norm > 0 && fact < norm;
+  const ratio = norm > 0 ? fact / norm : 1;
+
+  const okladPaid = partial ? oklad * ratio : oklad;
+  const quality = partial ? p.quality * ratio : p.quality;
+  const intensive = partial ? p.intensive * ratio : p.intensive;
+
+  const baseForCoef = okladPaid + quality + intensive + rvSum;
   const district = baseForCoef * (p.district / 100);
   const north = baseForCoef * (p.north / 100);
-  const gross = oklad + rvSum + p.intensive + district + north + p.quality;
+  const gross = okladPaid + rvSum + intensive + district + north + quality;
   const net = gross * (1 - p.ndfl / 100);
-  return { rate, oklad, dayCost, rvPrice, rvSum, district, north, gross, net };
+
+  // Стоимость ОДНОГО дополнительного РВ «под ключ»: сам день по двойной ставке
+  // плюс районный коэффициент и северная надбавка, которые он же увеличивает.
+  const rvMarginalGross = rvPrice * (1 + p.district / 100 + p.north / 100);
+  const rvMarginalNet = rvMarginalGross * (1 - p.ndfl / 100);
+
+  return { rate, oklad: okladPaid, quality, intensive, dayCost, rvPrice, rvSum, district, north, gross, net, partial, fact, norm, rvMarginalGross, rvMarginalNet };
 }
 
 export function calcAll(p) {
@@ -60,14 +86,17 @@ export function render(root) {
       base: s.base, intensive: s.intensive, quality: s.quality, gph: s.gph,
       ndfl: s.ndfl, district: s.district, north: s.north,
       workDays: s.workDays, rv: s.rv,
+      factDays: s.partialMonth ? s.factDays : null,
     };
     const r = calcAll(p);
+    const partial = r.one.partial;
     wrap.innerHTML = '';
 
     wrap.append(h('div', { class: 'page-head' },
       h('div', {},
         h('h1', {}, 'Калькулятор зарплаты'),
-        h('p', {}, `${MONTHS[s.month - 1]} ${s.year} · норма ${autoDays ?? '—'} раб. дн. · введено ${s.workDays} дн., РВ — ${s.rv}`)),
+        h('p', {}, `${MONTHS[s.month - 1]} ${s.year} · норма ${autoDays ?? '—'} раб. дн. · введено ${s.workDays} дн., РВ — ${s.rv}` +
+          (partial ? ` · неполный месяц: отработано ${r.one.fact} из ${r.one.norm} дн.` : ''))),
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', onClick: () => saveHistory(r) }, '💾 Сохранить расчёт'),
         h('button', { class: 'btn', onClick: () => exportCsv(r, s) }, '⤓ CSV'),
@@ -82,6 +111,8 @@ export function render(root) {
         `${(Math.abs(r.benefit) / (r.oneHalf.net || 1) * 100).toFixed(1)}% от 1,5 ставки`,
         r.benefit >= 0 ? '' : 'magenta'),
       statCard('1 ставка без НДФЛ', money0(r.one.gross), `на руки ${money0(r.one.net)}`, 'plain'),
+      statCard('Стоимость одного РВ', '+' + money0(r.one.rvMarginalNet),
+        `на руки · до НДФЛ +${money0(r.one.rvMarginalGross)}`, 'amber'),
     ));
 
     /* --- ввод --- */
@@ -124,6 +155,30 @@ export function render(root) {
           ? h('p', { class: 'muted', style: { marginTop: '10px', fontSize: '12.5px' } },
               `⚠ В календаре за ${MONTHS[s.month - 1]} ${s.year} — ${autoDays} рабочих дней, а введено ${s.workDays}.`)
           : null,
+        h('hr', { class: 'sep' }),
+        h('label', { class: 'check-pill', style: { display: 'inline-flex' } },
+          h('input', {
+            type: 'checkbox', checked: !!s.partialMonth, style: { width: 'auto', margin: 0 },
+            onChange: (e) => {
+              update(x => {
+                x.salary.partialMonth = e.target.checked;
+                if (e.target.checked && (x.salary.factDays === null || x.salary.factDays === undefined)) x.salary.factDays = x.salary.workDays;
+              });
+              redraw();
+            },
+          }),
+          h('span', {}, 'Неполный месяц (часть месяца — отпуск, больничный и т.п.)')),
+        s.partialMonth ? h('div', { class: 'row', style: { marginTop: '10px' } },
+          h('label', { class: 'field' }, h('span', {}, 'Фактически отработано дней'),
+            h('input', {
+              type: 'number', min: 0, max: s.workDays, step: 1, value: s.factDays ?? s.workDays,
+              onInput: (e) => { const v = parseFloat(e.target.value); update(x => { x.salary.factDays = isFinite(v) ? v : 0; }); redraw(); },
+            })),
+          h('p', { class: 'muted', style: { fontSize: '12.5px', flex: '1 1 220px', alignSelf: 'flex-end', margin: 0 } },
+            partial
+              ? `Оклад, доплата за интенсив и надбавка за качество урезаются пропорционально: × ${r.one.fact}/${r.one.norm}.`
+              : 'Пока фактические дни равны норме — расчёт как за полный месяц.'),
+        ) : null,
       ),
       h('div', { class: 'card' },
         h('h3', {}, 'Постоянные величины ', h('span', { class: 'hint' }, '(меняются раз в полгода)')),
@@ -133,6 +188,27 @@ export function render(root) {
           field('НДФЛ, %', 'ndfl'), field('Районный коэф., %', 'district'), field('Северная надбавка, %', 'north')),
       ),
     ));
+
+    /* --- пояснение расчёта неполного месяца (только 1 ставка, как в расчётном листке) --- */
+    if (partial) {
+      const one = r.one;
+      wrap.append(h('div', { class: 'card', style: { marginBottom: '16px' } },
+        h('h3', {}, 'Как посчитан неполный месяц (1 ставка)'),
+        h('div', { class: 'card-sub' },
+          `Отработано ${one.fact} из ${one.norm} рабочих дней — оклад и обе надбавки урезаны в той же пропорции, районный коэффициент и северная надбавка — 30% от их суммы. Формула проверена на реальном расчётном листке за июль 2026.`),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `Оплата по окладу (${s.base} × ${one.fact}/${one.norm})`), h('span', { class: 'v' }, money(one.oklad))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `Надбавка за качество (${s.quality} × ${one.fact}/${one.norm})`), h('span', { class: 'v' }, money(one.quality))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `Доплата за интенсив (${s.intensive} × ${one.fact}/${one.norm})`), h('span', { class: 'v' }, money(one.intensive))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Районный коэффициент (30%)'), h('span', { class: 'v' }, money(one.district))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Северная надбавка (30%)'), h('span', { class: 'v' }, money(one.north))),
+        one.rvSum ? h('div', { class: 'kv' }, h('span', { class: 'k' }, `Сумма по РВ (${s.rv} дн., без урезания)`), h('span', { class: 'v' }, money(one.rvSum))) : null,
+        h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'Начислено без НДФЛ'), h('span', { class: 'v' }, money(one.gross))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `НДФЛ ${s.ndfl}%`), h('span', { class: 'v' }, '− ' + money(one.gross - one.net))),
+        h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'На руки'), h('span', { class: 'v' }, money(one.net))),
+        h('p', { class: 'muted', style: { fontSize: '12px', marginTop: '10px', marginBottom: 0 } },
+          'ГПХ в этот расчёт не входит — это отдельный договор, не привязанный к рабочим дням по ставке.'),
+      ));
+    }
 
     /* --- сравнение форматов --- */
     wrap.append(h('div', { class: 'card', style: { marginBottom: '16px' } },
@@ -200,6 +276,7 @@ export function render(root) {
     update(x => {
       x.salary.history.unshift({
         id: Date.now(), year: s.year, month: s.month, workDays: s.workDays, rv: s.rv,
+        factDays: r.one.partial ? r.one.fact : null,
         gross: r.one.gross, net: r.one.net, withGph: r.withGph, oneHalf: r.oneHalf.net, benefit: r.benefit,
       });
       x.salary.history = x.salary.history.slice(0, 36);
@@ -268,7 +345,7 @@ function historyCard(redraw) {
           h('th', { class: 'num' }, 'Выгода'), h('th', {}, ''))),
         h('tbody', {}, ...s.history.map(it => h('tr', {},
           h('td', {}, `${MONTHS[it.month - 1]} ${it.year}`),
-          h('td', { class: 'num' }, it.workDays), h('td', { class: 'num' }, it.rv),
+          h('td', { class: 'num' }, it.factDays != null ? `${it.factDays}/${it.workDays}` : it.workDays), h('td', { class: 'num' }, it.rv),
           h('td', { class: 'num t-right mono' }, money0(it.net)),
           h('td', { class: 'num t-right mono neon-text' }, money0(it.withGph)),
           h('td', { class: 'num t-right mono' }, money0(it.oneHalf)),
