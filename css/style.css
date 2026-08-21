@@ -159,7 +159,8 @@ input,select,textarea{
 input:focus,select:focus,textarea:focus{
   outline:none;border-color:rgba(43,255,139,.6);box-shadow:0 0 0 3px rgba(43,255,139,.12),0 0 16px rgba(43,255,139,.2);
 }
-input[type=number]{font-family:var(--mono)}
+/* оставляем место под нативные стрелочки, иначе они наезжают на текст (особенно справа-выровненные суммы) */
+input[type=number]{font-family:var(--mono);padding-right:24px}
 label.field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
 label.field span{letter-spacing:.3px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}

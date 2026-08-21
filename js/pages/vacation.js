@@ -12,7 +12,7 @@
 // месяц (включая сами отпускные), результат линейно совпадает с тем, что
 // получится, если официально считать по зарплате до налога, а затем
 // удержать 13% с отпускных: и то и другое — просто X × 0,87.
-import { h, money0, toast, download, confirmBox, MONTHS } from '../core/ui.js';
+import { h, money0, toast, download, confirmBox, MONTHS, captureFocus, restoreFocus } from '../core/ui.js';
 import { getState, update } from '../core/store.js';
 
 const AVG_MONTH_DAYS = 29.3;
@@ -63,6 +63,7 @@ export function render(root) {
   root.append(wrap);
 
   function redraw() {
+    const focusToken = captureFocus(wrap);
     const st = getState();
     const v = st.vacation;
     const period = periodMonths(v.startYear, v.startMonth);
@@ -111,7 +112,7 @@ export function render(root) {
       onChange: (e) => { update(x => { x.vacation.startMonth = parseInt(e.target.value, 10); }); redraw(); },
     }, ...MONTHS.map((n, i) => h('option', { value: i + 1, selected: v.startMonth === i + 1 }, n)));
     const daysInput = h('input', {
-      type: 'number', min: 0, step: 1, value: v.vacationDays,
+      type: 'text', inputmode: 'numeric', value: v.vacationDays,
       onInput: (e) => { const d = parseFloat(e.target.value); update(x => { x.vacation.vacationDays = isFinite(d) ? d : 0; }); redraw(); },
     });
 
@@ -144,15 +145,20 @@ export function render(root) {
           h('tbody', {}, ...calc.rows.map((row, i) => h('tr', {},
             h('td', {}, `${MONTHS[row.month - 1]} ${row.year}`),
             h('td', { class: 'num' }, h('input', {
-              type: 'number', min: 0, step: 'any', value: entries[i].net,
+              type: 'text', inputmode: 'decimal', value: entries[i].net,
               placeholder: '0', style: { textAlign: 'right', width: '130px' },
-              onInput: (e) => { setMonth(row.year, row.month, { net: e.target.value === '' ? undefined : parseFloat(e.target.value) }); redraw(); },
+              onInput: (e) => {
+                const raw = e.target.value.replace(',', '.');
+                const v = parseFloat(raw);
+                setMonth(row.year, row.month, { net: raw === '' ? undefined : (isFinite(v) ? v : entries[i].net) });
+                redraw();
+              },
             })),
             h('td', { class: 'num' }, h('input', {
-              type: 'number', min: 0, max: row.daysInMonth, step: 1, value: row.excluded || '',
+              type: 'text', inputmode: 'numeric', value: row.excluded || '',
               placeholder: '0', title: 'Дни отпуска, больничного, командировки или неоплачиваемого отпуска в этом месяце — они не считаются полными',
               style: { textAlign: 'right', width: '80px' },
-              onInput: (e) => { setMonth(row.year, row.month, { excludedDays: e.target.value === '' ? 0 : parseInt(e.target.value, 10) }); redraw(); },
+              onInput: (e) => { setMonth(row.year, row.month, { excludedDays: e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0 }); redraw(); },
             })),
             h('td', { class: 'num mono' }, row.calcDays.toFixed(2)),
           ))),
@@ -174,6 +180,8 @@ export function render(root) {
 
     /* --- история --- */
     if (v.history?.length) wrap.append(historyCard(redraw));
+
+    restoreFocus(wrap, focusToken);
   }
 
   function setMonth(year, month, patch) {

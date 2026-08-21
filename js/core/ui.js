@@ -110,3 +110,48 @@ export function statCard(label, value, sub, tone = '') {
 export function emptyState(icon, text, action) {
   return h('div', { class: 'empty' }, h('div', { class: 'big' }, icon), h('div', {}, text), action ? h('div', { style: { marginTop: '16px' } }, action) : null);
 }
+
+/* ---------- сохранение фокуса при полной перерисовке (redraw) ---------- */
+// Страницы с «живым» пересчётом на onInput перерисовывают весь блок на каждое
+// нажатие клавиши — без этого поле теряло бы фокус (и вставка из буфера
+// срабатывала бы только один раз, пока курсор ещё стоит в исходном узле).
+// captureFocus запоминает путь от container до активного поля (индексы детей
+// на каждом уровне) и позицию курсора; restoreFocus после перерисовки находит
+// узел на том же пути в новом дереве и возвращает фокус с тем же выделением.
+
+/** @returns {{path:number[], sel:{start:number,end:number}|null}|null} */
+export function captureFocus(container) {
+  const active = document.activeElement;
+  if (!active || !container.contains(active) || active === container) return null;
+  const path = [];
+  let node = active;
+  while (node && node !== container) {
+    const parent = node.parentNode;
+    if (!parent) return null;
+    path.unshift(Array.prototype.indexOf.call(parent.children, node));
+    node = parent;
+  }
+  const sel = typeof active.selectionStart === 'number'
+    ? { start: active.selectionStart, end: active.selectionEnd } : null;
+  // Сырой текст поля на момент нажатия клавиши: редрав ниже покажет значение,
+  // «канонизированное» из состояния (например, распарсенное число без хвостовой
+  // точки) — без этого набор дробного числа обрывался бы на разделителе.
+  const rawValue = 'value' in active ? active.value : undefined;
+  return { path, sel, rawValue };
+}
+
+export function restoreFocus(container, token) {
+  if (!token) return;
+  let node = container;
+  for (const idx of token.path) {
+    node = node && node.children && node.children[idx];
+    if (!node) return;
+  }
+  if (node && typeof node.focus === 'function') {
+    if (token.rawValue !== undefined && 'value' in node && node.value !== token.rawValue) node.value = token.rawValue;
+    node.focus();
+    if (token.sel && typeof node.setSelectionRange === 'function') {
+      try { node.setSelectionRange(token.sel.start, token.sel.end); } catch { /* поле без выделения текста */ }
+    }
+  }
+}

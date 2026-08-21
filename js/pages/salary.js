@@ -1,5 +1,5 @@
 // Калькулятор заработной платы: ставка + ГПХ, сравнение с 1,5 ставки.
-import { h, money, money0, toast, statCard, download, MONTHS } from '../core/ui.js';
+import { h, money, money0, toast, statCard, download, MONTHS, captureFocus, restoreFocus } from '../core/ui.js';
 import { getState, update } from '../core/store.js';
 import { WORK_DAYS, YEARS, workDays, yearTotal, isPreliminary } from '../data/calendar.js';
 import * as vacation from './vacation.js';
@@ -98,17 +98,21 @@ function renderCalcTab(root) {
   const st = getState();
   const s = st.salary;
 
+  // type=text вместо number: у number браузер обнуляет .value на «промежуточных»
+  // значениях вроде «18000.» (до ввода цифр после точки) — при перерисовке на
+  // каждое нажатие клавиши это стирало бы вводимое число.
   const field = (label, key, opts = {}) => h('label', { class: 'field' },
     h('span', {}, label),
     h('input', {
-      type: 'number', value: s[key], step: opts.step || 'any', min: opts.min ?? 0,
-      onInput: (e) => { const v = parseFloat(e.target.value); update(x => { x.salary[key] = isFinite(v) ? v : 0; }); redraw(); },
+      type: 'text', inputmode: opts.step === 1 ? 'numeric' : 'decimal', value: s[key],
+      onInput: (e) => { const v = parseFloat(e.target.value.replace(',', '.')); update(x => { x.salary[key] = isFinite(v) ? v : 0; }); redraw(); },
     }));
 
   const wrap = h('div', {});
   root.append(wrap);
 
   function redraw() {
+    const focusToken = captureFocus(wrap);
     const st = getState(); const s = st.salary;
     const autoDays = workDays(s.year, s.month, s.calendarOverrides);
     if (autoDays && s.workDays !== autoDays && s.autoDays !== false) { /* значение подставляется кнопкой */ }
@@ -201,7 +205,7 @@ function renderCalcTab(root) {
         s.partialMonth ? h('div', { class: 'row', style: { marginTop: '10px' } },
           h('label', { class: 'field' }, h('span', {}, 'Фактически отработано дней'),
             h('input', {
-              type: 'number', min: 0, max: s.workDays, step: 1, value: s.factDays ?? s.workDays,
+              type: 'text', inputmode: 'numeric', value: s.factDays ?? s.workDays,
               onInput: (e) => { const v = parseFloat(e.target.value); update(x => { x.salary.factDays = isFinite(v) ? v : 0; }); redraw(); },
             })),
           h('p', { class: 'muted', style: { fontSize: '12.5px', flex: '1 1 220px', alignSelf: 'flex-end', margin: 0 } },
@@ -309,6 +313,8 @@ function renderCalcTab(root) {
 
     /* --- история --- */
     if (s.history?.length) wrap.append(historyCard(redraw));
+
+    restoreFocus(wrap, focusToken);
   }
 
   function saveHistory(r) {
