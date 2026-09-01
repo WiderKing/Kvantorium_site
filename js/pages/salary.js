@@ -3,6 +3,7 @@ import { h, money, money0, toast, statCard, download, MONTHS, captureFocus, rest
 import { getState, update } from '../core/store.js';
 import { WORK_DAYS, YEARS, workDays, yearTotal, isPreliminary } from '../data/calendar.js';
 import * as vacation from './vacation.js';
+import * as salaryHistoryPage from './salary-history.js';
 
 /**
  * Расчёт одной ставки по модели из рабочей таблицы.
@@ -68,13 +69,72 @@ const ROWS = [
   ['Надбавка за качество', 'quality'],
 ];
 
+/** «Сравнение форматов работы»: переиспользуется на вкладке расчёта и в истории зарплат. */
+export function comparisonCard(r, p) {
+  return h('div', { class: 'card', style: { marginBottom: '16px' } },
+    h('h3', {}, 'Сравнение форматов работы'),
+    h('div', { class: 'grid cols-2' },
+      h('div', {},
+        h('div', { class: 'pill ok', style: { marginBottom: '10px' } }, 'Текущий формат: 1 ставка + ГПХ'),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, '1 ставка, к начислению'), h('span', { class: 'v' }, money(r.one.gross))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, '1 ставка, на руки'), h('span', { class: 'v' }, money(r.one.net))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `ГПХ начислено`), h('span', { class: 'v' }, money(p.gph))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `ГПХ после НДФЛ (${p.ndfl}%)`), h('span', { class: 'v' }, money(r.gphNet))),
+        h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'Итого на руки'), h('span', { class: 'v' }, money(r.withGph))),
+      ),
+      h('div', {},
+        h('div', { class: 'pill cyan', style: { marginBottom: '10px' } }, 'Альтернатива: 1,5 ставки официально'),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Оклад 1,5 ставки'), h('span', { class: 'v' }, money(r.oneHalf.oklad))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, 'К начислению без НДФЛ'), h('span', { class: 'v' }, money(r.oneHalf.gross))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, `НДФЛ ${p.ndfl}%`), h('span', { class: 'v' }, '− ' + money(r.oneHalf.gross - r.oneHalf.net))),
+        h('div', { class: 'kv' }, h('span', { class: 'k' }, 'ГПХ'), h('span', { class: 'v muted' }, '—')),
+        h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'Итого на руки'), h('span', { class: 'v' }, money(r.oneHalf.net))),
+      ),
+    ),
+    h('hr', { class: 'sep' }),
+    h('p', { style: { margin: 0, fontSize: '14px' } },
+      r.benefit >= 0
+        ? ['Формат ', h('b', { class: 'neon-text' }, '1 ставка + ГПХ'), ' выгоднее 1,5 ставки на ', h('b', { class: 'neon-text' }, money(r.benefit)), ' в месяц — это ', h('b', {}, money(r.benefit * 12)), ' за год.']
+        : ['Формат ', h('b', {}, '1,5 ставки'), ' выгоднее на ', h('b', { class: 'neon-text' }, money(-r.benefit)), ' в месяц (', money(-r.benefit * 12), ' за год).']),
+  );
+}
+
+/** «Детализация по ставкам»: переиспользуется на вкладке расчёта и в истории зарплат. */
+export function detailTableCard(r, p) {
+  const cell = (v) => h('td', { class: 'num t-right mono' }, money(v));
+  return h('div', { class: 'card', style: { marginBottom: '16px' } },
+    h('h3', {}, 'Детализация по ставкам'),
+    h('div', { class: 'table-wrap' },
+      h('table', {},
+        h('thead', {}, h('tr', {},
+          h('th', { class: 'sticky-col' }, 'Показатель'),
+          h('th', { class: 'num' }, '0,5 ставки'), h('th', { class: 'num' }, '1 ставка'), h('th', { class: 'num' }, '1,5 ставки'))),
+        h('tbody', {},
+          ...ROWS.map(([label, key]) => h('tr', {},
+            h('td', { class: 'sticky-col' }, label),
+            cell(key in r.half ? r.half[key] : p[key]),
+            cell(key in r.one ? r.one[key] : p[key]),
+            cell(key in r.oneHalf ? r.oneHalf[key] : p[key]),
+          )),
+          h('tr', {}, h('td', { class: 'sticky-col' }, h('b', {}, 'Итого к начислению без НДФЛ')),
+            cell(r.half.gross), cell(r.one.gross), cell(r.oneHalf.gross)),
+          h('tr', {}, h('td', { class: 'sticky-col' }, h('b', { class: 'neon-text' }, 'Итого к получению')),
+            cell(r.half.net), cell(r.one.net), cell(r.oneHalf.net)),
+          h('tr', {}, h('td', { class: 'sticky-col' }, h('b', {}, 'С ГПХ на руки')),
+            h('td', { class: 'num t-right mono muted' }, '—'),
+            h('td', { class: 'num t-right mono neon-text' }, money(r.withGph)),
+            h('td', { class: 'num t-right mono muted' }, '—')),
+        ))));
+}
+
 export function render(root) {
   const tabsBar = h('div', { class: 'tabs', style: { marginBottom: '18px' } });
   const body = h('div', {});
   root.append(tabsBar, body);
 
   function mount() {
-    const tab = getState().ui.salaryTab === 'vacation' ? 'vacation' : 'calc';
+    const cur = getState().ui.salaryTab;
+    const tab = cur === 'vacation' ? 'vacation' : cur === 'history' ? 'history' : 'calc';
     tabsBar.innerHTML = '';
     tabsBar.append(
       h('button', {
@@ -82,12 +142,17 @@ export function render(root) {
         onClick: () => { update(x => { x.ui.salaryTab = 'calc'; }); mount(); },
       }, 'Расчёт по месяцам'),
       h('button', {
+        class: 'tab' + (tab === 'history' ? ' active' : ''),
+        onClick: () => { update(x => { x.ui.salaryTab = 'history'; }); mount(); },
+      }, '📜 История зарплат'),
+      h('button', {
         class: 'tab' + (tab === 'vacation' ? ' active' : ''),
         onClick: () => { update(x => { x.ui.salaryTab = 'vacation'; }); mount(); },
       }, '🏖 Отпускные'),
     );
     body.innerHTML = '';
     if (tab === 'vacation') vacation.render(body);
+    else if (tab === 'history') salaryHistoryPage.render(body);
     else renderCalcTab(body);
   }
 
@@ -254,59 +319,9 @@ function renderCalcTab(root) {
       ));
     }
 
-    /* --- сравнение форматов --- */
-    wrap.append(h('div', { class: 'card', style: { marginBottom: '16px' } },
-      h('h3', {}, 'Сравнение форматов работы'),
-      h('div', { class: 'grid cols-2' },
-        h('div', {},
-          h('div', { class: 'pill ok', style: { marginBottom: '10px' } }, 'Текущий формат: 1 ставка + ГПХ'),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, '1 ставка, к начислению'), h('span', { class: 'v' }, money(r.one.gross))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, '1 ставка, на руки'), h('span', { class: 'v' }, money(r.one.net))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, `ГПХ начислено`), h('span', { class: 'v' }, money(s.gph))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, `ГПХ после НДФЛ (${s.ndfl}%)`), h('span', { class: 'v' }, money(r.gphNet))),
-          h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'Итого на руки'), h('span', { class: 'v' }, money(r.withGph))),
-        ),
-        h('div', {},
-          h('div', { class: 'pill cyan', style: { marginBottom: '10px' } }, 'Альтернатива: 1,5 ставки официально'),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Оклад 1,5 ставки'), h('span', { class: 'v' }, money(r.oneHalf.oklad))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, 'К начислению без НДФЛ'), h('span', { class: 'v' }, money(r.oneHalf.gross))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, `НДФЛ ${s.ndfl}%`), h('span', { class: 'v' }, '− ' + money(r.oneHalf.gross - r.oneHalf.net))),
-          h('div', { class: 'kv' }, h('span', { class: 'k' }, 'ГПХ'), h('span', { class: 'v muted' }, '—')),
-          h('div', { class: 'kv total' }, h('span', { class: 'k' }, 'Итого на руки'), h('span', { class: 'v' }, money(r.oneHalf.net))),
-        ),
-      ),
-      h('hr', { class: 'sep' }),
-      h('p', { style: { margin: 0, fontSize: '14px' } },
-        r.benefit >= 0
-          ? ['Формат ', h('b', { class: 'neon-text' }, '1 ставка + ГПХ'), ' выгоднее 1,5 ставки на ', h('b', { class: 'neon-text' }, money(r.benefit)), ' в месяц — это ', h('b', {}, money(r.benefit * 12)), ' за год.']
-          : ['Формат ', h('b', {}, '1,5 ставки'), ' выгоднее на ', h('b', { class: 'neon-text' }, money(-r.benefit)), ' в месяц (', money(-r.benefit * 12), ' за год).']),
-    ));
-
-    /* --- детальная таблица --- */
-    const cell = (v) => h('td', { class: 'num t-right mono' }, money(v));
-    wrap.append(h('div', { class: 'card', style: { marginBottom: '16px' } },
-      h('h3', {}, 'Детализация по ставкам'),
-      h('div', { class: 'table-wrap' },
-        h('table', {},
-          h('thead', {}, h('tr', {},
-            h('th', { class: 'sticky-col' }, 'Показатель'),
-            h('th', { class: 'num' }, '0,5 ставки'), h('th', { class: 'num' }, '1 ставка'), h('th', { class: 'num' }, '1,5 ставки'))),
-          h('tbody', {},
-            ...ROWS.map(([label, key]) => h('tr', {},
-              h('td', { class: 'sticky-col' }, label),
-              cell(key in r.half ? r.half[key] : p[key]),
-              cell(key in r.one ? r.one[key] : p[key]),
-              cell(key in r.oneHalf ? r.oneHalf[key] : p[key]),
-            )),
-            h('tr', {}, h('td', { class: 'sticky-col' }, h('b', {}, 'Итого к начислению без НДФЛ')),
-              cell(r.half.gross), cell(r.one.gross), cell(r.oneHalf.gross)),
-            h('tr', {}, h('td', { class: 'sticky-col' }, h('b', { class: 'neon-text' }, 'Итого к получению')),
-              cell(r.half.net), cell(r.one.net), cell(r.oneHalf.net)),
-            h('tr', {}, h('td', { class: 'sticky-col' }, h('b', {}, 'С ГПХ на руки')),
-              h('td', { class: 'num t-right mono muted' }, '—'),
-              h('td', { class: 'num t-right mono neon-text' }, money(r.withGph)),
-              h('td', { class: 'num t-right mono muted' }, '—')),
-          )))));
+    /* --- сравнение форматов и детальная таблица (переиспользуемые блоки) --- */
+    wrap.append(comparisonCard(r, p));
+    wrap.append(detailTableCard(r, p));
 
     /* --- календарь --- */
     wrap.append(calendarCard(redraw));
@@ -317,15 +332,27 @@ function renderCalcTab(root) {
     restoreFocus(wrap, focusToken);
   }
 
+  // Сохранение — источник данных для вкладки «История зарплат»: один месяц
+  // может быть сохранён только один раз, повторное сохранение того же
+  // года/месяца заменяет прежнюю запись более свежей (со всеми показателями
+  // для развёрнутого просмотра и выгрузки расчётного листка).
   function saveHistory(r) {
     const s = getState().salary;
+    const entry = {
+      id: Date.now(), year: s.year, month: s.month, savedAt: new Date().toISOString(),
+      workDays: s.workDays, rv: s.rv, factDays: r.one.partial ? r.one.fact : null,
+      gross: r.one.gross, net: r.one.net, withGph: r.withGph, oneHalf: r.oneHalf.net, benefit: r.benefit,
+      params: {
+        base: s.base, intensive: s.intensive, quality: s.quality, gph: s.gph, ndfl: s.ndfl,
+        district: s.district, north: s.north, workDays: s.workDays, rv: s.rv,
+        factDays: s.partialMonth ? s.factDays : null,
+      },
+      calc: r,
+    };
     update(x => {
-      x.salary.history.unshift({
-        id: Date.now(), year: s.year, month: s.month, workDays: s.workDays, rv: s.rv,
-        factDays: r.one.partial ? r.one.fact : null,
-        gross: r.one.gross, net: r.one.net, withGph: r.withGph, oneHalf: r.oneHalf.net, benefit: r.benefit,
-      });
-      x.salary.history = x.salary.history.slice(0, 36);
+      x.salary.history = x.salary.history.filter(h => !(h.year === s.year && h.month === s.month));
+      x.salary.history.unshift(entry);
+      x.salary.history = x.salary.history.slice(0, 240);
     });
     toast(`Расчёт за ${MONTHS[s.month - 1]} ${s.year} сохранён`); redraw();
   }

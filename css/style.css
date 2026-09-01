@@ -282,6 +282,9 @@ details.acc .acc-body{padding:0 16px 16px}
 .kv .v{font-family:var(--mono);font-weight:600;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:ltr}
 .kv.total{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;font-size:14.5px}
 .kv.total .v{color:var(--neon);font-size:16px;text-shadow:0 0 14px rgba(43,255,139,.4)}
+.kv.month-row.clickable{cursor:pointer;margin:0 -10px;padding:6px 10px;border-radius:8px;transition:background .18s,border-color .18s}
+.kv.month-row.clickable:hover{background:rgba(43,255,139,.08)}
+.kv.month-row.clickable:hover .v{color:var(--neon);text-shadow:0 0 8px rgba(43,255,139,.5)}
 
 .scroll-x{overflow-x:auto}
 @media (max-width:760px){
