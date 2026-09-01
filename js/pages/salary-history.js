@@ -1,16 +1,20 @@
 // «История зарплат»: архив по сохранённым расчётам — годы колонками, внутри
-// 12 месяцев с суммой на руки. Клик по месяцу открывает полную раскладку
-// (те же карточки, что и на вкладке расчёта) и выгрузку расчётного листка.
-import { h, money0, toast, download, confirmBox, modal, MONTHS, emptyState } from '../core/ui.js';
+// 12 месяцев с суммой на руки. Клик по месяцу открывает модалку с полной
+// раскладкой (те же карточки, что и на вкладке расчёта), выгрузку в Word
+// и точную печатную копию официального расчётного листка (печать / PDF).
+import { h, money0, toast, download, confirmBox, modal, MONTHS, emptyState, printElement } from '../core/ui.js';
 import { getState, update } from '../core/store.js';
-import { comparisonCard, detailTableCard } from './salary.js';
+import { comparisonCard, detailTableCard, applyBonus } from './salary.js';
 import { buildPayslipDocx } from '../exporters/payslip.js';
+import { payslipPrintNode } from '../exporters/payslip-print.js';
 import { go } from '../core/router.js';
 
 const findEntry = (history, year, month) => history.find(h => h.year === year && h.month === month) || null;
 
 export function render(root) {
-  const wrap = h('div', {});
+  // no-print: печать всегда идёт через отдельный узел (printElement), эта
+  // страница сама на печать не выводится.
+  const wrap = h('div', { class: 'no-print' });
   root.append(wrap);
   redraw();
 
@@ -65,37 +69,45 @@ export function render(root) {
   function openMonth(entry, outerRedraw) {
     const st = getState();
     const requisites = st.salary.requisites || {};
-    const one = entry.calc.one;
+    const bonus = entry.bonus || { amount: 0, note: '' };
+    const calc = applyBonus(entry.calc, bonus, entry.params.ndfl);
+    const one = calc.one;
 
     const body = h('div', {});
     body.append(h('div', { class: 'grid cols-3', style: { marginBottom: '16px' } },
       h('div', { class: 'card' }, h('div', { class: 'stat' },
         h('div', { class: 'label' }, 'На руки (1 ставка)'),
         h('div', { class: 'value' }, money0(one.net)),
-        h('div', { class: 'sub' }, `до НДФЛ ${money0(one.gross)}`))),
+        h('div', { class: 'sub' }, `до НДФЛ ${money0(one.gross)}${bonus.amount ? ` · включая премию ${money0(bonus.amount)}` : ''}`))),
       h('div', { class: 'card' }, h('div', { class: 'stat' },
         h('div', { class: 'label' }, 'С ГПХ на руки'),
-        h('div', { class: 'value cyan' }, money0(entry.calc.withGph)),
-        h('div', { class: 'sub' }, `ГПХ ${money0(entry.params.gph)} · после НДФЛ ${money0(entry.calc.gphNet)}`))),
+        h('div', { class: 'value cyan' }, money0(calc.withGph)),
+        h('div', { class: 'sub' }, `ГПХ ${money0(entry.params.gph)} · после НДФЛ ${money0(calc.gphNet)}`))),
       h('div', { class: 'card' }, h('div', { class: 'stat' },
         h('div', { class: 'label' }, 'Отработано'),
         h('div', { class: 'value plain' }, one.partial ? `${one.fact} из ${one.norm} дн.` : `${one.norm} дн. (полный)`),
         h('div', { class: 'sub' }, `РВ: ${entry.params.rv || 0} · сохранено ${new Date(entry.savedAt || entry.id).toLocaleString('ru-RU')}`))),
     ));
 
-    body.append(comparisonCard(entry.calc, entry.params));
-    body.append(detailTableCard(entry.calc, entry.params));
+    body.append(bonusCard(entry, outerRedraw, openMonth));
+
+    body.append(comparisonCard(calc, entry.params));
+    body.append(detailTableCard(calc, entry.params));
 
     body.append(h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' } },
       h('button', {
-        class: 'btn primary', onClick: async () => {
+        class: 'btn primary',
+        onClick: () => printElement(payslipPrintNode(entry, requisites)),
+      }, '🖨 Печать / PDF (как оригинал)'),
+      h('button', {
+        class: 'btn', onClick: async () => {
           try {
             const blob = await buildPayslipDocx(entry, requisites);
             download(`Расчётный_листок_${MONTHS[entry.month - 1]}_${entry.year}.docx`, blob);
             toast('Расчётный листок выгружен');
           } catch (e) { console.error(e); toast('Ошибка выгрузки: ' + e.message, 'err'); }
         }
-      }, '⤓ Расчётный листок (Word)'),
+      }, '⤓ Word (редактируемый)'),
       h('button', {
         class: 'btn', onClick: () => {
           update(x => {
@@ -116,6 +128,44 @@ export function render(root) {
 
     modal({ wide: true, title: `${MONTHS[entry.month - 1]} ${entry.year}`, body, okText: null, cancelText: 'Закрыть' });
   }
+}
+
+/** Разовая премия/матпомощь поверх формулы — редактируется прямо в модалке месяца. */
+function bonusCard(entry, outerRedraw, openMonth) {
+  const bonus = entry.bonus || { amount: 0, note: '' };
+  const amountInput = h('input', { type: 'text', inputmode: 'decimal', value: bonus.amount || '', placeholder: '0' });
+  const noteInput = h('input', { type: 'text', value: bonus.note || '', placeholder: 'например: премия к юбилею лицея' });
+
+  const save = () => {
+    const amount = parseFloat(String(amountInput.value).replace(',', '.')) || 0;
+    const note = noteInput.value.trim();
+    update(x => {
+      const e = x.salary.history.find(h => h.id === entry.id);
+      if (!e) return;
+      e.bonus = amount || note ? { amount, note } : null;
+      // плоские поля записи (их читают сетка годов и «Заполнить из истории» на
+      // вкладке «Отпускные») пересчитываются заново от исходного calc + премии,
+      // без накопления — так повторное сохранение с другой суммой не задваивает.
+      const calc = applyBonus(e.calc, e.bonus, e.params.ndfl);
+      e.gross = calc.one.gross; e.net = calc.one.net;
+      e.withGph = calc.withGph; e.oneHalf = calc.oneHalf.net; e.benefit = calc.benefit;
+    });
+    document.querySelector('.modal-back')?.remove();
+    toast(amount ? `Премия ${money0(amount)} сохранена` : 'Премия убрана');
+    const fresh = findEntry(getState().salary.history, entry.year, entry.month);
+    outerRedraw();
+    if (fresh) openMonth(fresh, outerRedraw);
+  };
+
+  return h('div', { class: 'card', style: { marginBottom: '16px' } },
+    h('h3', {}, '💰 Премия / разовая доплата', h('span', { class: 'hint' }, ' — не входит в формулу расчёта')),
+    h('div', { class: 'card-sub' }, 'Прибавляется к начислению этого месяца и облагается тем же НДФЛ — учитывается в сумме «на руки», сравнении форматов, расчётном листке и на вкладке «Отпускные».'),
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', {}, 'Сумма премии, ₽'), amountInput),
+      h('label', { class: 'field' }, h('span', {}, 'Комментарий'), noteInput),
+      h('button', { class: 'btn primary fixed', onClick: save }, '💾 Сохранить')),
+    bonus.amount ? h('p', { class: 'muted', style: { fontSize: '12.5px', marginTop: '10px', marginBottom: 0 } },
+      `Сейчас учтено: +${money0(bonus.amount)} (${money0(bonus.amount * (1 - entry.params.ndfl / 100))} на руки после НДФЛ).`) : null);
 }
 
 function requisitesCard(redraw) {

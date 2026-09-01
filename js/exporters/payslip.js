@@ -6,8 +6,12 @@
 // ГПХ в официальный листок не входит, это отдельный договор).
 import { buildDocx, p, table } from '../lib/docx-write.js';
 import { MONTHS } from '../core/ui.js';
+import { applyBonus } from '../pages/salary.js';
 
 const HOURS_PER_DAY = 3.6; // норма при 18-часовой учебной неделе (5 дней)
+// Сокращения месяцев как в реальном листке: короткие названия (март, май, июнь,
+// июль) не сокращаются, остальные — с точкой.
+const SHORT_MONTHS = ['янв.', 'февр.', 'март', 'апр.', 'май', 'июнь', 'июль', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
 const fmt = (n) => (Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt1 = (n) => (Math.round((n + Number.EPSILON) * 10) / 10).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
@@ -16,8 +20,10 @@ const fmt1 = (n) => (Math.round((n + Number.EPSILON) * 10) / 10).toLocaleString(
  * @param {object} requisites salary.requisites
  */
 export async function buildPayslipDocx(entry, requisites) {
-  const one = entry.calc.one;
-  const period = `${MONTHS[entry.month - 1]} ${entry.year}`;
+  const bonus = entry.bonus || { amount: 0, note: '' };
+  const calc = applyBonus(entry.calc, bonus, entry.params.ndfl);
+  const one = calc.one;
+  const period = `${SHORT_MONTHS[entry.month - 1]} ${entry.year}`;
   const days = one.partial ? one.fact : one.norm;
   const hours = days * HOURS_PER_DAY;
   const ndfl = one.gross - one.net;
@@ -59,14 +65,18 @@ export async function buildPayslipDocx(entry, requisites) {
       c(fmt(one.district), { align: 'right' }), c('Выплачено:', { bold: true })],
     [c('Северная надбавка'), c(period), '', c(`${days} дн.`, { align: 'center' }),
       c(fmt(one.north), { align: 'right' }), c(fmt(one.net), { align: 'right', bold: true })],
-    [c('Доплата за интенсивность и высокие результаты'), c(period), '', c(`${days} дн.`, { align: 'center' }),
-      c(fmt(one.intensive), { align: 'right' }), c(`Зарплата за ${period}`, {})],
     [c('Надбавка за качество работы'), c(period), '', c(`${days} дн.`, { align: 'center' }),
-      c(fmt(one.quality), { align: 'right' }), c(fmt(one.net), { align: 'right' })],
+      c(fmt(one.quality), { align: 'right' }), c(`Зарплата за ${period}`, {})],
+    [c('Доплата за интенсивность и высокие результаты'), c(period), '', c(`${days} дн.`, { align: 'center' }),
+      c(fmt(one.intensive), { align: 'right' }), c(fmt(one.net), { align: 'right' })],
   ];
   if (one.rvSum > 0) {
     rows.push([c('Сумма по РВ (рабочие выходные)'), c(period), '', c(`${entry.params.rv} дн.`, { align: 'center' }),
       c(fmt(one.rvSum), { align: 'right' }), '']);
+  }
+  if (bonus.amount > 0) {
+    rows.push([c(bonus.note ? `Премия (${bonus.note})` : 'Премия'), c(period), '', '',
+      c(fmt(bonus.amount), { align: 'right' }), '']);
   }
   blocks.push(table(w, rows), p('', { size: 4, spacingAfter: 6 }));
 

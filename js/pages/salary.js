@@ -99,6 +99,21 @@ export function comparisonCard(r, p) {
   );
 }
 
+/**
+ * Накладывает разовую премию (не входит в формулу — матпомощь, премия к празднику
+ * и т.п.) поверх уже посчитанного calcAll(): прибавляется к начислению каждой
+ * ставки, облагается тем же НДФЛ, что и остальная зарплата. Не трогает сами
+ * params/calc в состоянии — используется только для отображения и выгрузки.
+ */
+export function applyBonus(calc, bonus, ndfl) {
+  const amount = Number(bonus?.amount) || 0;
+  if (!amount) return calc;
+  const addNet = amount * (1 - ndfl / 100);
+  const bump = (r) => ({ ...r, gross: r.gross + amount, net: r.net + addNet });
+  const half = bump(calc.half), one = bump(calc.one), oneHalf = bump(calc.oneHalf);
+  return { ...calc, half, one, oneHalf, withGph: one.net + calc.gphNet, benefit: (one.net + calc.gphNet) - oneHalf.net };
+}
+
 /** «Детализация по ставкам»: переиспользуется на вкладке расчёта и в истории зарплат. */
 export function detailTableCard(r, p) {
   const cell = (v) => h('td', { class: 'num t-right mono' }, money(v));
@@ -128,7 +143,7 @@ export function detailTableCard(r, p) {
 }
 
 export function render(root) {
-  const tabsBar = h('div', { class: 'tabs', style: { marginBottom: '18px' } });
+  const tabsBar = h('div', { class: 'tabs no-print', style: { marginBottom: '18px' } });
   const body = h('div', {});
   root.append(tabsBar, body);
 

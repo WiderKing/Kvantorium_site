@@ -155,3 +155,22 @@ export function restoreFocus(container, token) {
     }
   }
 }
+
+/* ---------- печать произвольного узла в обход модалок и оверлеев ---------- */
+// window.print() печатает всю страницу как она есть — из открытой модалки
+// (fixed-оверлей поверх контента) это даёт мешанину или пустой лист. Поэтому
+// печатаемая разметка кладётся в отдельный узел прямо в <body> (а не внутрь
+// модалки), и на печать через CSS показывается только он — модалка и все
+// обычные блоки страницы в этот момент скрыты (.no-print / #modal-root).
+let printRoot = null;
+export function printElement(node) {
+  if (!printRoot) {
+    printRoot = document.createElement('div');
+    printRoot.id = 'global-print-root';
+    printRoot.className = 'print-only';
+    document.body.appendChild(printRoot);
+  }
+  printRoot.innerHTML = '';
+  printRoot.appendChild(node);
+  window.print();
+}
